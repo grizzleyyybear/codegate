@@ -3,43 +3,69 @@
 #
 # Build contexts point at the repo root so every service Dockerfile can
 # COPY ../../shared into its image.
+#
+# Production notes:
+#   - Set POSTGRES_PASSWORD, GATEWAY_API_KEY and GITHUB_WEBHOOK_SECRET in
+#     .env (or the environment) before deploying anywhere public.
+#   - Services start only after their dependencies report healthy, so a
+#     cold start never races postgres bootstrapping.
 services:
   postgres:
     image: pgvector/pgvector:pg16
     environment:
       POSTGRES_DB: codegate
       POSTGRES_USER: codegate
-      POSTGRES_PASSWORD: codegate
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-codegate}
     ports: ["5432:5432"]
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./infra/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U codegate -d codegate"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    logging: &default-logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   ollama:
     # kept only as an optional offline fallback; the pipeline defaults to
     # OpenRouter free-tier models and never depends on this service.
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.32.5
     profiles: ["offline"]
     ports: ["11434:11434"]
     volumes:
       - ollama-models:/root/.ollama
+    logging: *default-logging
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.111.0
     command: ["--config=/etc/otel-collector-config.yaml"]
     volumes: ["./observability/otel-collector-config.yaml:/etc/otel-collector-config.yaml"]
     ports: ["4317:4317", "8889:8889"]
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:13133"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
 
   prometheus:
     image: prom/prometheus:v2.54.1
     volumes: ["./observability/prometheus.yml:/etc/prometheus/prometheus.yml"]
     ports: ["9090:9090"]
+    logging: *default-logging
 
   grafana:
     image: grafana/grafana:11.2.0
     ports: ["3001:3000"]
     volumes: ["./observability/grafana/dashboards:/var/lib/grafana/dashboards"]
     depends_on: [prometheus]
+    logging: *default-logging
 
   orchestrator:
     build:
@@ -47,7 +73,16 @@ services:
       dockerfile: services/orchestrator/Dockerfile
     env_file: .env
     ports: ["8001:8001"]
-    depends_on: [otel-collector]
+    depends_on:
+      otel-collector:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging: *default-logging
 
   retrieval:
     build:
@@ -57,7 +92,18 @@ services:
     ports: ["8002:8002"]
     volumes:
       - ./scratch:/work
-    depends_on: [postgres, otel-collector]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      otel-collector:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging: *default-logging
 
   codegen:
     build:
@@ -67,7 +113,16 @@ services:
     ports: ["8003:8003"]
     volumes:
       - ./scratch:/work
-    depends_on: [otel-collector]
+    depends_on:
+      otel-collector:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging: *default-logging
 
   validator:
     build:
@@ -77,7 +132,16 @@ services:
     ports: ["8004:8004"]
     volumes:
       - ./scratch:/work
-    depends_on: [otel-collector]
+    depends_on:
+      otel-collector:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging: *default-logging
 
   guardrail:
     build:
@@ -85,7 +149,16 @@ services:
       dockerfile: services/guardrail/Dockerfile
     env_file: .env
     ports: ["8005:8005"]
-    depends_on: [otel-collector]
+    depends_on:
+      otel-collector:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8005/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging: *default-logging
 
   gateway:
     build:
@@ -95,7 +168,24 @@ services:
     ports: ["8000:8000"]
     volumes:
       - ./scratch:/work
-    depends_on: [orchestrator, retrieval, codegen, validator, guardrail]
+    depends_on:
+      orchestrator:
+        condition: service_healthy
+      retrieval:
+        condition: service_healthy
+      codegen:
+        condition: service_healthy
+      validator:
+        condition: service_healthy
+      guardrail:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging: *default-logging
 
   dashboard:
     build: ./dashboard
@@ -103,9 +193,11 @@ services:
       NEXT_PUBLIC_GATEWAY_URL: http://localhost:8000
       NEXT_PUBLIC_GRAFANA_URL: http://localhost:3001
     ports: ["3000:3000"]
-    depends_on: [gateway]
+    depends_on:
+      gateway:
+        condition: service_healthy
+    logging: *default-logging
 
 volumes:
   pgdata:
   ollama-models:
-

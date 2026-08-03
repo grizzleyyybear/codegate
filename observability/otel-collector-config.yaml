@@ -6,6 +6,10 @@ receivers:
       grpc:
         endpoint: 0.0.0.0:4317
 
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
 processors:
   batch: {}
 
@@ -16,6 +20,7 @@ exporters:
     verbosity: basic
 
 service:
+  extensions: [health_check]
   pipelines:
     traces:
       receivers: [otlp]
