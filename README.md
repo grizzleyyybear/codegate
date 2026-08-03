@@ -7,10 +7,32 @@ and a guardrail gate routes the result to auto-merge, human review, or
 reject before it ever reaches CI/CD. Every hop is traced with
 OpenTelemetry and surfaced in Grafana.
 
-Built to mirror what an "Ace Frontier Engineer"-type role actually ships:
-multi-agent orchestration, RAG pipelines, validating AI-generated code,
-quality gates in CI/CD, and observability/guardrails for agents in
-production — not a demo chatbot.
+## Features
+
+- **Multi-agent orchestration (LangGraph)** — heuristic intent scoping,
+  RAG retrieval, an adaptive research sub-agent that reformulates weak
+  searches, and LLM-planned multi-step goals
+- **RAG over your repo** — tree-sitter chunking into pgvector, so every
+  patch is grounded in the actual codebase
+- **Validated AI-generated code** — every patch is applied to a hermetic
+  scratch clone and checked with ruff, mypy, bandit, and a full pytest
+  run before any merge happens
+- **Independent LLM judge** — a second model family scores each patch
+  (median over samples), so the author of the code never grades it
+- **Automatic escalation on failure** — failed validation retries with
+  full failure feedback on a stronger model, then replans the goal
+  around the failure
+- **Guardrail gate** — confidence-driven auto-merge, human review, or
+  reject, with baseline-diffed static analysis so pre-existing repo debt
+  never blocks a merge
+- **Human review queue** — approve/reject with a dashboard, and every
+  verdict is fed back into task memory to shape future plans
+- **GitHub webhook** — issue labeled `codegate` kicks off a pipeline run
+  automatically (HMAC-SHA256 verified)
+- **Full observability** — every agent hop traced via OpenTelemetry into
+  Grafana; metrics via Prometheus
+- **Zero-cost LLM routing** — all models are OpenRouter free-tier routes
+  (verified live), overridable per role via env
 
 ## Architecture
 
@@ -170,24 +192,17 @@ $env:PYTHONPATH = "services\guardrail;shared"; python -m pytest services/guardra
 
 Lint and types: `ruff check services shared` and `mypy --python-version 3.11`.
 
-## What's real vs stubbed
+## Next steps in development
 
-Real: every service is a real FastAPI app with real pydantic contracts.
-LLM calls go through OpenRouter free-tier models, retrieval chunking is
-tree-sitter-based with regex and fixed-size fallbacks, embeddings live
-in pgvector, the validator applies each patch to a hermetic scratch
-clone of the repo before running ruff/mypy/bandit and pytest, codegen
-escalates models on failure, the planner proposes real multi-step plans
-with an iterative research loop, the judge takes a median over samples,
-the human-review queue is SQLite-backed with approve/reject endpoints,
-and the gateway enforces API-key auth on `/intents` plus HMAC-verified
-webhooks. The whole pipeline has been run end to end against a real
-repo, producing a real merged commit in the scratch checkout.
-
-Still open: `scripts/seed_eval_set.py` (calibrating the confidence
-thresholds against real merged PRs) and swapping the commit-to-scratch
-"auto-merge" for opening a real GitHub PR (touches only
-`_auto_merge` in `services/gateway/app/pipeline.py`).
+- **Confidence threshold calibration** — `scripts/seed_eval_set.py`
+  tunes `AUTO_MERGE_THRESHOLD` / `REJECT_THRESHOLD` against a set of
+  real merged PRs
+- **Real GitHub PR integration** — replace the commit-to-scratch
+  auto-merge with opening an actual GitHub pull request (a single
+  function swap in `_auto_merge` in
+  `services/gateway/app/pipeline.py`)
+- **Sensitive-path policy** — guardrail rules for protected files and
+  paths before anything merges
 
 ## Troubleshooting
 
