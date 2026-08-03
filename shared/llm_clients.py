@@ -120,21 +120,34 @@ class OpenRouterClient(OpenAICompatClient):
             },
         )
 
+    async def complete(
+        self, prompt: str, system: str | None = None, temperature: float = 0.3
+    ) -> LLMResponse:
+        # fail fast with an actionable message instead of an opaque 401
+        if not self.api_key:
+            raise RuntimeError(
+                "OPENROUTER_API_KEY is not set. Get a free key at "
+                "https://openrouter.ai (no card required) and add it to .env"
+            )
+        return await super().complete(prompt, system=system, temperature=temperature)
+
 
 # Logical role -> OpenRouter free model. Different families on purpose:
 # the judge must not share a family with the codegen default, and the
 # escalation model should be a stronger reasoner than the default.
-# Override any of these via env without touching code.
+# These slugs were verified live against OpenRouter (2026-08): the older
+# llama/gemini/deepseek :free endpoints are gone. Override any of these
+# via env without touching code.
 FREE_MODEL_ROUTES = {
     "codegen-default": os.environ.get(
-        "CODEGEN_MODEL", "deepseek/deepseek-chat-v3-0324:free"
+        "CODEGEN_MODEL", "cohere/north-mini-code:free"
     ),
     "codegen-escalation": os.environ.get(
-        "ESCALATION_MODEL", "deepseek/deepseek-r1:free"
+        "ESCALATION_MODEL", "nvidia/nemotron-3-super-120b-a12b:free"
     ),
-    "judge": os.environ.get("JUDGE_MODEL", "google/gemini-2.0-flash-exp:free"),
+    "judge": os.environ.get("JUDGE_MODEL", "google/gemma-4-26b-a4b-it:free"),
     "planner": os.environ.get(
-        "PLANNER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"
+        "PLANNER_MODEL", "google/gemma-4-26b-a4b-it:free"
     ),
 }
 

@@ -93,6 +93,28 @@ def _queue_for_review(patch: dict, validation: dict, decision: dict, prompt: str
     return {"queued": True, "intent_id": patch["intent_id"]}
 
 
+def record_human_outcome(item: dict, approved: bool) -> None:
+    """Feed a human review decision back into the orchestrator's task
+    memory — the richest learning signal the pipeline has. Best-effort:
+    memory is advisory, never fatal."""
+    try:
+        httpx.post(
+            f"{ORCHESTRATOR_URL}/outcome",
+            json={
+                "intent_id": item["intent_id"],
+                "repo": item.get("repo", ""),
+                "prompt": item.get("prompt", ""),
+                "action": "human_approved" if approved else "human_rejected",
+                "confidence": item.get("confidence", 0.0),
+                "attempts": 1,
+                "reasoning": item.get("reason", ""),
+            },
+            timeout=5,
+        )
+    except Exception:  # noqa: BLE001, S110 — memory is advisory, never fatal
+        pass
+
+
 def _validation_clean(validation: dict) -> bool:
     """True when the patch applied, passed static analysis, and passed tests."""
     return bool(
@@ -122,13 +144,15 @@ async def run_pipeline(intent: IntentRequest) -> dict:
             plan = (
                 await client.post(
                     f"{ORCHESTRATOR_URL}/plan",
-                    json=intent.model_dump(mode="json"),
+                    json={"intent": intent.model_dump(mode="json")},
                 )
             ).json()
 
-        # if the first (cheap) model emits a broken patch, retry with the
-        # validator's full failure feedback and escalate to the stronger
-        # model family until validation is clean or attempts run out.
+        # escalation ladder when validation fails:
+        #   attempt 2: same plan, stronger model, full failure feedback
+        #   attempt 3+: full REPLAN — the orchestrator re-formulates the
+        #   goal around the failure, then the stronger model executes it
+        attempts = 1
         with tracer.start_as_current_span("codegen"):
             patch = (await client.post(f"{CODEGEN_URL}/generate", json={"plan": plan})).json()
 
@@ -136,20 +160,33 @@ async def run_pipeline(intent: IntentRequest) -> dict:
             validation = (
                 await client.post(f"{VALIDATOR_URL}/validate", json=patch)
             ).json()
-            for _ in range(1, MAX_CODEGEN_ATTEMPTS):
+            for attempt in range(1, MAX_CODEGEN_ATTEMPTS):
                 if _validation_clean(validation):
                     break
+                feedback = _retry_feedback(validation)
+                if attempt >= 2:
+                    with tracer.start_as_current_span("replan"):
+                        plan = (
+                            await client.post(
+                                f"{ORCHESTRATOR_URL}/plan",
+                                json={
+                                    "intent": intent.model_dump(mode="json"),
+                                    "feedback": feedback,
+                                },
+                            )
+                        ).json()
                 with tracer.start_as_current_span("codegen_retry"):
                     patch = (
                         await client.post(
                             f"{CODEGEN_URL}/generate",
                             json={
                                 "plan": plan,
-                                "feedback": _retry_feedback(validation),
+                                "feedback": feedback,
                                 "escalate": True,
                             },
                         )
                     ).json()
+                attempts += 1
                 validation = (
                     await client.post(f"{VALIDATOR_URL}/validate", json=patch)
                 ).json()
@@ -161,6 +198,25 @@ async def run_pipeline(intent: IntentRequest) -> dict:
                     json={"patch": patch, "validation": validation},
                 )
             ).json()
+
+        # feed the outcome back into persistent task memory so the next
+        # similar intent plans with this run's lessons (best-effort)
+        with tracer.start_as_current_span("record_outcome"):
+            try:
+                await client.post(
+                    f"{ORCHESTRATOR_URL}/outcome",
+                    json={
+                        "intent_id": intent.intent_id,
+                        "repo": intent.repo,
+                        "prompt": intent.prompt,
+                        "action": decision["action"],
+                        "confidence": validation.get("confidence", 0.0),
+                        "attempts": attempts,
+                        "reasoning": validation.get("llm_judge_reasoning", ""),
+                    },
+                )
+            except Exception:  # noqa: BLE001, S110 — memory is advisory, never fatal
+                pass
 
     action = decision["action"]
     if action == GuardrailAction.AUTO_MERGE:

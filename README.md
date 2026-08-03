@@ -40,7 +40,12 @@ forth, the OpenTelemetry bootstrap, and the LLM client interface.
 ## Running locally
 
 ```bash
-cp .env.example .env        # add your free OpenRouter API key (openrouter.ai, no card needed)
+cp .env.example .env
+# then in .env:
+#   1. set POSTGRES_PASSWORD (required — compose refuses to start without it)
+#      and use the same password inside DATABASE_URL
+#   2. add your free OpenRouter API key (openrouter.ai, no card needed)
+#   3. replace the GATEWAY_API_KEY / GITHUB_WEBHOOK_SECRET placeholders
 docker compose up --build
 ```
 

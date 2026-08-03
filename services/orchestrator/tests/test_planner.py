@@ -79,3 +79,37 @@ def test_plan_steps_includes_context(monkeypatch):
         RetrievedChunk(file_path="src/a.py", content="code here", similarity=0.9),
         RetrievedChunk(file_path="src/b.py", content="more code", similarity=0.8),
     ]
+
+
+def test_plan_steps_includes_memory_lessons(monkeypatch):
+    fake = FakePlanner('[{"description": "step one", "target_files": ["a.py"]}]')
+    monkeypatch.setattr(planner, "get_client", lambda model: fake)
+    monkeypatch.setattr(
+        planner.memory, "lessons_for",
+        lambda prompt, repo: "Lessons from past similar tasks: previous attempt failed",
+    )
+    out = asyncio.run(planner.plan_steps(_state()))
+    assert "Lessons from past similar tasks" in fake.prompt
+    assert out["plan"].steps[0].description == "step one"
+
+
+def test_plan_steps_memory_failure_is_advisory(monkeypatch):
+    fake = FakePlanner('[{"description": "step one", "target_files": ["a.py"]}]')
+    monkeypatch.setattr(planner, "get_client", lambda model: fake)
+    monkeypatch.setattr(
+        planner.memory, "lessons_for",
+        lambda prompt, repo: (_ for _ in ()).throw(RuntimeError("db locked")),
+    )
+    out = asyncio.run(planner.plan_steps(_state()))
+    assert len(out["plan"].steps) == 1
+
+
+def test_plan_steps_reformulates_with_feedback(monkeypatch):
+    fake = FakePlanner('[{"description": "new approach", "target_files": ["b.py"]}]')
+    monkeypatch.setattr(planner, "get_client", lambda model: fake)
+    state = _state()
+    state["feedback"] = "Tests FAILED: assertion error in test_login"
+    out = asyncio.run(planner.plan_steps(state))
+    assert "FAILED validation" in fake.prompt
+    assert "assertion error" in fake.prompt
+    assert out["plan"].steps[0].description == "new approach"

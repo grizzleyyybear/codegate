@@ -43,6 +43,29 @@ class Plan(BaseModel):
     context: list[RetrievedChunk] = Field(default_factory=list)
 
 
+class PlanRequest(BaseModel):
+    """Body for POST /plan: the intent, plus optional validator failure
+    feedback when the gateway asks for a mid-task re-formulation of the
+    goal (replan) instead of a blind retry."""
+
+    intent: IntentRequest
+    feedback: str | None = None
+
+
+class TaskOutcome(BaseModel):
+    """Body for POST /outcome: how a pipeline run ended. Recorded in the
+    orchestrator's persistent task memory so future plans for similar
+    intents start with lessons learned."""
+
+    intent_id: str
+    repo: str = ""
+    prompt: str = ""
+    action: str  # auto_merge / human_review / reject
+    confidence: float = 0.0
+    attempts: int = 1
+    reasoning: str = ""
+
+
 class CodePatch(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 

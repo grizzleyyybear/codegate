@@ -22,6 +22,13 @@ def test_intents_requires_api_key(monkeypatch):
 
 def test_reviews_list_and_decide(tmp_path, monkeypatch):
     monkeypatch.setenv("REVIEW_QUEUE_DB", str(tmp_path / "reviews.db"))
+    captured = {}
+
+    def fake_post(url, json=None, timeout=None):
+        captured["url"] = url
+        captured["json"] = json
+
+    monkeypatch.setattr("app.pipeline.httpx.post", fake_post)
     assert client.get("/reviews").json() == []
 
     from app import review_queue
@@ -32,6 +39,10 @@ def test_reviews_list_and_decide(tmp_path, monkeypatch):
     resp = client.post("/reviews/i2", json={"approve": False})
     assert resp.status_code == 200
     assert resp.json()["status"] == "rejected"
+    # the human's rejection must reach task memory
+    assert captured["json"]["action"] == "human_rejected"
+    assert captured["json"]["intent_id"] == "i2"
+    assert captured["json"]["confidence"] == 0.6
 
     resp = client.post("/reviews/missing", json={"approve": True})
     assert resp.status_code == 404
@@ -40,6 +51,13 @@ def test_reviews_list_and_decide(tmp_path, monkeypatch):
 def test_review_approve_merges(tmp_path, monkeypatch):
     monkeypatch.setenv("REVIEW_QUEUE_DB", str(tmp_path / "reviews.db"))
     monkeypatch.setenv("GATEWAY_API_KEY", "sekret")
+    captured = {}
+
+    def fake_post(url, json=None, timeout=None):
+        captured["url"] = url
+        captured["json"] = json
+
+    monkeypatch.setattr("app.pipeline.httpx.post", fake_post)
 
     from app import review_queue
 
@@ -55,3 +73,7 @@ def test_review_approve_merges(tmp_path, monkeypatch):
     assert resp.status_code == 200
     assert resp.json()["status"] == "approved"
     assert resp.json()["merge"]["merged"] is True
+    # the human's approval must reach task memory
+    assert captured["json"]["action"] == "human_approved"
+    assert captured["json"]["intent_id"] == "i3"
+    assert captured["json"]["reasoning"] == "reason"

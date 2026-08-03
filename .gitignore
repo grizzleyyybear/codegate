@@ -11,6 +11,8 @@ scratch/
 graphify-out/
 dist/
 *.log
+*.jsonl
+*.db
 
 .claude/
 .coverage

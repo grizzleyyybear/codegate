@@ -14,6 +14,8 @@ import re
 from shared.llm_clients import get_client
 from shared.schemas import Plan, PlanStep
 
+from . import memory
+
 PLANNER_SYSTEM = """You are a planning agent for a code-modification pipeline.
 Given a task and code context from the target repo, break the task into a
 short ordered list of concrete implementation steps (1-5 steps).
@@ -53,6 +55,7 @@ def _parse_steps(raw: str) -> list[PlanStep]:
 async def plan_steps(state: dict) -> dict:
     intent = state["intent"]
     context = state.get("context", [])
+    feedback = state.get("feedback", "")
 
     steps: list[PlanStep] = []
     try:
@@ -61,12 +64,27 @@ async def plan_steps(state: dict) -> dict:
             f"--- {c['file_path']} ---\n{c['content'][:1200]}"
             for c in context[:8]
         )
-        prompt = (
-            f"Task: {intent.prompt}\n\nRepository context:\n{context_block}"
-            if context_block
-            else f"Task: {intent.prompt}\n\n(no repository context retrieved)"
+        sections = [f"Task: {intent.prompt}"]
+        # persistent memory: lessons from similar past runs in this repo
+        try:
+            lessons = memory.lessons_for(intent.prompt, intent.repo)
+        except Exception:  # noqa: BLE001 — memory is advisory, never fatal
+            lessons = ""
+        if lessons:
+            sections.append(lessons)
+        # mid-task goal re-formulation: a previous plan failed validation,
+        # so revise the approach instead of restating the same steps
+        if feedback:
+            sections.append(
+                "A previous plan for this task FAILED validation with the "
+                f"output below. Re-formulate the approach to avoid the same "
+                f"failure — change strategy, not just wording:\n{feedback[:2000]}"
+            )
+        sections.append(
+            f"Repository context:\n{context_block}" if context_block
+            else "(no repository context retrieved)"
         )
-        response = await client.complete(prompt=prompt, system=PLANNER_SYSTEM)
+        response = await client.complete(prompt="\n\n".join(sections), system=PLANNER_SYSTEM)
         steps = _parse_steps(response.text)
     except Exception:  # noqa: BLE001 — planner is best-effort; fall back below
         steps = []
