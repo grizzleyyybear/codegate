@@ -36,7 +36,10 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          # GITHUB_TOKEN cannot publish to user-namespace ghcr packages;
+          # GHCR_TOKEN is a PAT with write:packages (set once via:
+          #   gh auth token | gh secret set GHCR_TOKEN)
+          password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.image.context }}
