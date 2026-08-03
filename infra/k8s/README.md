@@ -27,6 +27,16 @@ kubectl create secret generic codegate-secrets --namespace codegate `
 kubectl apply -f infra/k8s/
 ```
 
+Pulling from ghcr.io requires cluster credentials for the package (it is
+private by default): create an imagePullSecret from the same token and add
+it to every deployment:
+
+```powershell
+kubectl create secret docker-registry ghcr-pull --namespace codegate `
+  --docker-server=ghcr.io --docker-username=grizzleyyybear --docker-password="$(gh auth token)"
+# then uncomment imagePullSecrets in each infra/k8s/*-deployment.yaml
+```
+
 Order does not matter (namespace is in the set; every other object declares it).
 
 ## 3. Verify
@@ -54,8 +64,11 @@ kubectl port-forward -n codegate svc/dashboard 3000:3000
 
 ## Notes
 
-- Images are `codegate/<name>:latest` — build and push them first
-  (e.g. `docker build -f services/gateway/Dockerfile -t codegate/gateway .`).
+- Images are `ghcr.io/grizzleyyybear/<name>:latest` — already built and
+  pushed; rebuild with
+  `docker build -f services/<name>/Dockerfile -t ghcr.io/grizzleyyybear/<name>:latest .`
+  (dashboard: `docker build -t ghcr.io/grizzleyyybear/dashboard:latest ./dashboard`).
+  A private ghcr.io package requires an imagePullSecret on the pods.
 - `/work` (repos, review queue) is an `emptyDir` on gateway/codegen/validator/retrieval —
   swap for a shared PVC if you want clones to survive restarts.
 - The pipeline assumes the retrieval vector schema exists — the postgres pod

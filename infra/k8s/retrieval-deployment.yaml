@@ -14,9 +14,12 @@ spec:
     metadata:
       labels: { app: retrieval }
     spec:
+      # uncomment for private ghcr.io packages:
+      # imagePullSecrets:
+      #   - { name: ghcr-pull }
       containers:
         - name: retrieval
-          image: codegate/retrieval:latest
+          image: ghcr.io/grizzleyyybear/retrieval:latest
           imagePullPolicy: IfNotPresent
           ports: [{ containerPort: 8002 }]
           envFrom:

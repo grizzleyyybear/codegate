@@ -14,9 +14,12 @@ spec:
     metadata:
       labels: { app: codegen }
     spec:
+      # uncomment for private ghcr.io packages:
+      # imagePullSecrets:
+      #   - { name: ghcr-pull }
       containers:
         - name: codegen
-          image: codegate/codegen:latest
+          image: ghcr.io/grizzleyyybear/codegen:latest
           imagePullPolicy: IfNotPresent
           ports: [{ containerPort: 8003 }]
           envFrom:

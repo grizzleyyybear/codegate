@@ -14,9 +14,12 @@ spec:
     metadata:
       labels: { app: dashboard }
     spec:
+      # uncomment for private ghcr.io packages:
+      # imagePullSecrets:
+      #   - { name: ghcr-pull }
       containers:
         - name: dashboard
-          image: codegate/dashboard:latest
+          image: ghcr.io/grizzleyyybear/dashboard:latest
           imagePullPolicy: IfNotPresent
           ports: [{ containerPort: 3000 }]
           envFrom:

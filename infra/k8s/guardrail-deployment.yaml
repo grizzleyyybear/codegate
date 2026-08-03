@@ -12,9 +12,12 @@ spec:
     metadata:
       labels: { app: guardrail }
     spec:
+      # uncomment for private ghcr.io packages:
+      # imagePullSecrets:
+      #   - { name: ghcr-pull }
       containers:
         - name: guardrail
-          image: codegate/guardrail:latest
+          image: ghcr.io/grizzleyyybear/guardrail:latest
           imagePullPolicy: IfNotPresent
           ports: [{ containerPort: 8005 }]
           envFrom:

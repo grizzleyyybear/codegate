@@ -14,9 +14,12 @@ spec:
     metadata:
       labels: { app: gateway }
     spec:
+      # uncomment for private ghcr.io packages:
+      # imagePullSecrets:
+      #   - { name: ghcr-pull }
       containers:
         - name: gateway
-          image: codegate/gateway:latest
+          image: ghcr.io/grizzleyyybear/gateway:latest
           imagePullPolicy: IfNotPresent
           ports: [{ containerPort: 8000 }]
           envFrom:

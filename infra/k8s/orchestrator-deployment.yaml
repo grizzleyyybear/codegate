@@ -12,9 +12,12 @@ spec:
     metadata:
       labels: { app: orchestrator }
     spec:
+      # uncomment for private ghcr.io packages:
+      # imagePullSecrets:
+      #   - { name: ghcr-pull }
       containers:
         - name: orchestrator
-          image: codegate/orchestrator:latest
+          image: ghcr.io/grizzleyyybear/orchestrator:latest
           imagePullPolicy: IfNotPresent
           ports: [{ containerPort: 8001 }]
           envFrom:

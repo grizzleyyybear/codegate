@@ -13,9 +13,12 @@ spec:
     metadata:
       labels: { app: validator }
     spec:
+      # uncomment for private ghcr.io packages:
+      # imagePullSecrets:
+      #   - { name: ghcr-pull }
       containers:
         - name: validator
-          image: codegate/validator:latest
+          image: ghcr.io/grizzleyyybear/validator:latest
           imagePullPolicy: IfNotPresent
           ports: [{ containerPort: 8004 }]
           envFrom:
