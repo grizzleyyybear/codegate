@@ -86,7 +86,7 @@ async def research_context(state: dict) -> dict:
                 resp = await http.post(
                     f"{RETRIEVAL_URL}/retrieve",
                     json={"repo": intent.repo, "query": query, "top_k": 4},
-                    timeout=30,
+                    timeout=120,
                 )
                 resp.raise_for_status()
                 for chunk in resp.json()["chunks"]:

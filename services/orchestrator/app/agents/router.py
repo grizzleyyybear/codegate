@@ -43,11 +43,13 @@ async def parse_intent(state: dict) -> dict:
 async def retrieve_context(state: dict) -> dict:
     intent = state["intent"]
     query = state.get("retrieval_query", intent.prompt)
+    # generous timeout: the retrieval service is a single worker that can
+    # be busy embedding an index batch when we arrive
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             "http://retrieval:8002/retrieve",
             json={"repo": intent.repo, "query": query, "top_k": 8},
-            timeout=30,
+            timeout=120,
         )
         resp.raise_for_status()
         state["context"] = resp.json()["chunks"]
