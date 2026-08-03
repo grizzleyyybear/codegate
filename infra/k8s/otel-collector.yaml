@@ -1,0 +1,84 @@
+# OpenTelemetry collector for the AgentOps pipeline. Services send
+# traces to otel-collector:4317 (default in shared/otel_setup.py).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: codegate
+data:
+  otel-collector-config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+
+    processors:
+      batch: {}
+
+    exporters:
+      prometheus:
+        endpoint: 0.0.0.0:8889
+      logging:
+        verbosity: basic
+
+    service:
+      extensions: [health_check]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [logging]
+        metrics:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [prometheus]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: codegate
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: otel-collector }
+  template:
+    metadata:
+      labels: { app: otel-collector }
+    spec:
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.111.0
+          args: ["--config=/etc/otel-collector-config.yaml"]
+          ports:
+            - { name: otlp, containerPort: 4317 }
+            - { name: metrics, containerPort: 8889 }
+          volumeMounts:
+            - { name: config, mountPath: /etc/otel-collector-config.yaml, subPath: otel-collector-config.yaml }
+          readinessProbe:
+            httpGet: { path: /, port: 13133 }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: { cpu: "100m", memory: "128Mi" }
+            limits: { cpu: "500m", memory: "512Mi" }
+      volumes:
+        - name: config
+          configMap:
+            name: otel-collector-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: codegate
+spec:
+  selector: { app: otel-collector }
+  ports:
+    - { name: otlp, port: 4317, targetPort: 4317 }
+    - { name: metrics, port: 8889, targetPort: 8889 }

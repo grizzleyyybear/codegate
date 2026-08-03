@@ -1,0 +1,25 @@
+# Optional. Only applies if your cluster has an ingress controller
+# (nginx, traefik, ...). Replace codegate.example.com with your domain;
+# without an ingress, use: kubectl port-forward -n codegate svc/gateway 8000:8000
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: codegate
+  namespace: codegate
+spec:
+  rules:
+    - host: codegate.example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway
+                port: { number: 8000 }
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: dashboard
+                port: { number: 3000 }

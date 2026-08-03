@@ -1,38 +1,39 @@
-# Port 8004. Runs ruff/mypy/bandit/pytest against clones in /work and
-# calls the LLM judge (needs OPENROUTER_API_KEY from the secret).
+# Port 8003. Clones repos into REPOS_ROOT=/work — emptyDir is fine for a
+# demo; use a PVC shared with the gateway if you want one worker to see
+# another's clones.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: validator
+  name: codegen
   namespace: codegate
 spec:
   replicas: 2
   selector:
-    matchLabels: { app: validator }
+    matchLabels: { app: codegen }
   template:
     metadata:
-      labels: { app: validator }
+      labels: { app: codegen }
     spec:
       containers:
-        - name: validator
-          image: codegate/validator:latest
+        - name: codegen
+          image: codegate/codegen:latest
           imagePullPolicy: IfNotPresent
-          ports: [{ containerPort: 8004 }]
+          ports: [{ containerPort: 8003 }]
           envFrom:
             - configMapRef: { name: codegate-config }
             - secretRef: { name: codegate-secrets }
           livenessProbe:
-            httpGet: { path: /health, port: 8004 }
+            httpGet: { path: /health, port: 8003 }
             initialDelaySeconds: 10
             periodSeconds: 10
           readinessProbe:
-            httpGet: { path: /health, port: 8004 }
+            httpGet: { path: /health, port: 8003 }
             initialDelaySeconds: 5
             periodSeconds: 5
           volumeMounts:
             - { name: work, mountPath: /work }
           resources:
-            requests: { cpu: "200m", memory: "256Mi" }
+            requests: { cpu: "100m", memory: "256Mi" }
             limits: { cpu: "1", memory: "1Gi" }
       volumes:
         - name: work
@@ -41,8 +42,8 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: validator
+  name: codegen
   namespace: codegate
 spec:
-  selector: { app: validator }
-  ports: [{ port: 8004, targetPort: 8004 }]
+  selector: { app: codegen }
+  ports: [{ port: 8003, targetPort: 8003 }]

@@ -1,49 +1,42 @@
-# Entry point — the only service exposed to the internet (via the
-# ingress or a LoadBalancer). Reads GATEWAY_API_KEY and
-# GITHUB_WEBHOOK_SECRET from the secret.
+# Port 8005 — the sensitive-path / secret-detection gate.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: gateway
+  name: guardrail
   namespace: codegate
 spec:
   replicas: 2
   selector:
-    matchLabels: { app: gateway }
+    matchLabels: { app: guardrail }
   template:
     metadata:
-      labels: { app: gateway }
+      labels: { app: guardrail }
     spec:
       containers:
-        - name: gateway
-          image: codegate/gateway:latest
+        - name: guardrail
+          image: codegate/guardrail:latest
           imagePullPolicy: IfNotPresent
-          ports: [{ containerPort: 8000 }]
+          ports: [{ containerPort: 8005 }]
           envFrom:
             - configMapRef: { name: codegate-config }
             - secretRef: { name: codegate-secrets }
           livenessProbe:
-            httpGet: { path: /health, port: 8000 }
+            httpGet: { path: /health, port: 8005 }
             initialDelaySeconds: 10
             periodSeconds: 10
           readinessProbe:
-            httpGet: { path: /health, port: 8000 }
+            httpGet: { path: /health, port: 8005 }
             initialDelaySeconds: 5
             periodSeconds: 5
-          volumeMounts:
-            - { name: work, mountPath: /work }
           resources:
             requests: { cpu: "100m", memory: "128Mi" }
             limits: { cpu: "500m", memory: "512Mi" }
-      volumes:
-        - name: work
-          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: gateway
+  name: guardrail
   namespace: codegate
 spec:
-  selector: { app: gateway }
-  ports: [{ port: 8000, targetPort: 8000 }]
+  selector: { app: guardrail }
+  ports: [{ port: 8005, targetPort: 8005 }]

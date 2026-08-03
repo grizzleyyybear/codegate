@@ -1,3 +1,6 @@
+# pgvector-backed store for retrieval. The init SQL (extension + schema +
+# ivfflat index) is bootstrapped once via a ConfigMap mounted into the
+# docker-entrypoint-initdb.d directory.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -18,10 +21,54 @@ spec:
           ports: [{ containerPort: 5432 }]
           envFrom:
             - secretRef: { name: codegate-secrets }
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "codegate", "-d", "codegate"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
           volumeMounts:
             - { name: data, mountPath: /var/lib/postgresql/data }
+            - { name: initdb, mountPath: /docker-entrypoint-initdb.d }
+          resources:
+            requests: { cpu: "250m", memory: "256Mi" }
+            limits: { cpu: "1", memory: "1Gi" }
+      volumes:
+        - name: initdb
+          configMap:
+            name: codegate-initdb
   volumeClaimTemplates:
     - metadata: { name: data }
       spec:
         accessModes: ["ReadWriteOnce"]
         resources: { requests: { storage: 10Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: codegate
+spec:
+  clusterIP: None
+  selector: { app: postgres }
+  ports: [{ port: 5432, targetPort: 5432 }]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: codegate-initdb
+  namespace: codegate
+data:
+  init.sql: |
+    CREATE EXTENSION IF NOT EXISTS vector;
+
+    CREATE TABLE IF NOT EXISTS code_chunks (
+        id SERIAL PRIMARY KEY,
+        repo TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        content TEXT NOT NULL,
+        embedding VECTOR(384)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_code_chunks_repo ON code_chunks (repo);
+    CREATE INDEX IF NOT EXISTS idx_code_chunks_embedding
+        ON code_chunks USING ivfflat (embedding vector_cosine_ops);

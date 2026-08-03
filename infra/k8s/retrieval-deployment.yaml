@@ -1,34 +1,35 @@
-# Port 8004. Runs ruff/mypy/bandit/pytest against clones in /work and
-# calls the LLM judge (needs OPENROUTER_API_KEY from the secret).
+# Port 8002. Needs DATABASE_URL (secret) and a writable /work for
+# chunked repos — an emptyDir is fine for a demo; swap for a PVC if
+# re-indexing cost matters.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: validator
+  name: retrieval
   namespace: codegate
 spec:
-  replicas: 2
+  replicas: 1
   selector:
-    matchLabels: { app: validator }
+    matchLabels: { app: retrieval }
   template:
     metadata:
-      labels: { app: validator }
+      labels: { app: retrieval }
     spec:
       containers:
-        - name: validator
-          image: codegate/validator:latest
+        - name: retrieval
+          image: codegate/retrieval:latest
           imagePullPolicy: IfNotPresent
-          ports: [{ containerPort: 8004 }]
+          ports: [{ containerPort: 8002 }]
           envFrom:
             - configMapRef: { name: codegate-config }
             - secretRef: { name: codegate-secrets }
           livenessProbe:
-            httpGet: { path: /health, port: 8004 }
+            httpGet: { path: /health, port: 8002 }
             initialDelaySeconds: 10
             periodSeconds: 10
           readinessProbe:
-            httpGet: { path: /health, port: 8004 }
-            initialDelaySeconds: 5
-            periodSeconds: 5
+            httpGet: { path: /health, port: 8002 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
           volumeMounts:
             - { name: work, mountPath: /work }
           resources:
@@ -41,8 +42,8 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: validator
+  name: retrieval
   namespace: codegate
 spec:
-  selector: { app: validator }
-  ports: [{ port: 8004, targetPort: 8004 }]
+  selector: { app: retrieval }
+  ports: [{ port: 8002, targetPort: 8002 }]

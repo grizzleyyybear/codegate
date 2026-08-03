@@ -1,0 +1,17 @@
+# Non-secret configuration shared by every deployment. Mirrors the
+# defaults in the code (see services/*/app and shared/otel_setup.py).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: codegate-config
+  namespace: codegate
+data:
+  REPOS_ROOT: /work
+  MAX_CODEGEN_ATTEMPTS: "3"
+  CODEGEN_TRIGGER_LABEL: codegate
+  JUDGE_SAMPLES: "3"
+  REVIEW_QUEUE_DB: /work/reviews.db
+  OPENROUTER_BASE_URL: https://openrouter.ai/api/v1
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+  NEXT_PUBLIC_GATEWAY_URL: http://gateway:8000
+  NEXT_PUBLIC_GRAFANA_URL: http://grafana:3000

@@ -1,0 +1,43 @@
+# Next.js review dashboard. Talks to gateway:8000 and grafana:3000
+# (both ClusterIP) — access via kubectl port-forward if you have no
+# ingress controller.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboard
+  namespace: codegate
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: dashboard }
+  template:
+    metadata:
+      labels: { app: dashboard }
+    spec:
+      containers:
+        - name: dashboard
+          image: codegate/dashboard:latest
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 3000 }]
+          envFrom:
+            - configMapRef: { name: codegate-config }
+          livenessProbe:
+            httpGet: { path: /, port: 3000 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /, port: 3000 }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: { cpu: "100m", memory: "128Mi" }
+            limits: { cpu: "500m", memory: "512Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard
+  namespace: codegate
+spec:
+  selector: { app: dashboard }
+  ports: [{ port: 3000, targetPort: 3000 }]
