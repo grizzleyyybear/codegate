@@ -1,0 +1,34 @@
+# Same shape as gateway-deployment.yaml — copy this pattern for
+# orchestrator, retrieval, codegen, and guardrail (only image name,
+# port, and replica count change).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: validator
+  namespace: codegate
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: validator }
+  template:
+    metadata:
+      labels: { app: validator }
+    spec:
+      containers:
+        - name: validator
+          image: codegate/validator:latest
+          ports: [{ containerPort: 8004 }]
+          envFrom:
+            - secretRef: { name: codegate-secrets }
+          resources:
+            requests: { cpu: "200m", memory: "256Mi" }
+            limits: { cpu: "1", memory: "1Gi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: validator
+  namespace: codegate
+spec:
+  selector: { app: validator }
+  ports: [{ port: 8004, targetPort: 8004 }]

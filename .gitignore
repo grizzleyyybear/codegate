@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.env
+node_modules/
+.next/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+scratch/
+graphify-out/
+dist/
+*.log
+
+.claude/
+.coverage

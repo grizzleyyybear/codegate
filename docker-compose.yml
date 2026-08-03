@@ -1,0 +1,111 @@
+# Local dev stack — everything the pipeline needs to run end to end,
+# including the observability side of the JD's "AgentOps" bullet.
+#
+# Build contexts point at the repo root so every service Dockerfile can
+# COPY ../../shared into its image.
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: codegate
+      POSTGRES_USER: codegate
+      POSTGRES_PASSWORD: codegate
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+  ollama:
+    # kept only as an optional offline fallback; the pipeline defaults to
+    # OpenRouter free-tier models and never depends on this service.
+    image: ollama/ollama:latest
+    profiles: ["offline"]
+    ports: ["11434:11434"]
+    volumes:
+      - ollama-models:/root/.ollama
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.111.0
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes: ["./observability/otel-collector-config.yaml:/etc/otel-collector-config.yaml"]
+    ports: ["4317:4317", "8889:8889"]
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    volumes: ["./observability/prometheus.yml:/etc/prometheus/prometheus.yml"]
+    ports: ["9090:9090"]
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    ports: ["3001:3000"]
+    volumes: ["./observability/grafana/dashboards:/var/lib/grafana/dashboards"]
+    depends_on: [prometheus]
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: services/orchestrator/Dockerfile
+    env_file: .env
+    ports: ["8001:8001"]
+    depends_on: [otel-collector]
+
+  retrieval:
+    build:
+      context: .
+      dockerfile: services/retrieval/Dockerfile
+    env_file: .env
+    ports: ["8002:8002"]
+    volumes:
+      - ./scratch:/work
+    depends_on: [postgres, otel-collector]
+
+  codegen:
+    build:
+      context: .
+      dockerfile: services/codegen/Dockerfile
+    env_file: .env
+    ports: ["8003:8003"]
+    volumes:
+      - ./scratch:/work
+    depends_on: [otel-collector]
+
+  validator:
+    build:
+      context: .
+      dockerfile: services/validator/Dockerfile
+    env_file: .env
+    ports: ["8004:8004"]
+    volumes:
+      - ./scratch:/work
+    depends_on: [otel-collector]
+
+  guardrail:
+    build:
+      context: .
+      dockerfile: services/guardrail/Dockerfile
+    env_file: .env
+    ports: ["8005:8005"]
+    depends_on: [otel-collector]
+
+  gateway:
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    env_file: .env
+    ports: ["8000:8000"]
+    volumes:
+      - ./scratch:/work
+    depends_on: [orchestrator, retrieval, codegen, validator, guardrail]
+
+  dashboard:
+    build: ./dashboard
+    environment:
+      NEXT_PUBLIC_GATEWAY_URL: http://localhost:8000
+      NEXT_PUBLIC_GRAFANA_URL: http://localhost:3001
+    ports: ["3000:3000"]
+    depends_on: [gateway]
+
+volumes:
+  pgdata:
+  ollama-models:
+

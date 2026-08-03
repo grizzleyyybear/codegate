@@ -1,0 +1,10 @@
+{
+  "title": "Codegate agent pipeline",
+  "panels": [
+    { "title": "Requests per stage", "type": "timeseries", "targets": [{ "expr": "sum(rate(codegate_stage_requests_total[5m])) by (stage)" }] },
+    { "title": "Stage latency (p95)", "type": "timeseries", "targets": [{ "expr": "histogram_quantile(0.95, sum(rate(codegate_stage_duration_seconds_bucket[5m])) by (le, stage))" }] },
+    { "title": "Validator confidence over time", "type": "timeseries", "targets": [{ "expr": "avg(codegate_validator_confidence) by (repo)" }] },
+    { "title": "Guardrail decisions", "type": "piechart", "targets": [{ "expr": "sum(codegate_guardrail_decisions_total) by (action)" }] },
+    { "title": "Token cost per merged patch", "type": "timeseries", "targets": [{ "expr": "sum(rate(codegate_llm_tokens_total[1h])) by (model)" }] }
+  ]
+}

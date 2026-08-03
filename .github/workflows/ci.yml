@@ -1,0 +1,21 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test-services:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [orchestrator, retrieval, codegen, validator, guardrail, gateway]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r services/${{ matrix.service }}/requirements.txt
+      - run: pip install pytest
+      - run: PYTHONPATH=. pytest services/${{ matrix.service }}/tests -q

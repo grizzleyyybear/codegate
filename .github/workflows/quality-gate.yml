@@ -1,0 +1,38 @@
+# Gates any PR opened by the codegen agent itself. This is the JD's
+# "integrate AI validation, testing, and quality gates into CI/CD
+# pipelines" bullet — the pipeline calls the validator/guardrail services
+# pre-merge, then this workflow re-checks static analysis, coverage, and
+# a security scan before allowing merge.
+#
+# Each service ships its own `app` package, so lint/type/test steps must
+# run one service at a time — a single mypy/pytest invocation at the repo
+# root collides on the duplicate "app" module names.
+name: ai-quality-gate
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  gate:
+    if: contains(github.event.pull_request.labels.*.name, 'codegate-generated')
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [orchestrator, retrieval, codegen, validator, guardrail, gateway]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r services/${{ matrix.service }}/requirements.txt pytest pytest-cov ruff mypy bandit
+      - name: static analysis
+        run: |
+          ruff check services/${{ matrix.service }}
+          mypy services/${{ matrix.service }} shared
+          bandit -r services/${{ matrix.service }} shared -q
+      - name: tests + coverage
+        # fail-under is a floor, not the target: raise it as the suite grows.
+        run: PYTHONPATH=. pytest services/${{ matrix.service }}/tests --cov=services/${{ matrix.service }}/app --cov-fail-under=30
+      - name: block merge below coverage or on lint failure
+        run: echo "quality gate passed — safe to merge"
