@@ -34,18 +34,32 @@ def _patch(intent_id, diff):
     )
 
 
+def _full_context_diff(repo_path, added_lines):
+    """A real git-diff-style patch: the hunk carries full file context, so
+    git apply (which requires trailing context after a change, or EOF)
+    accepts it regardless of the change's position in the file."""
+    path = os.path.join(repo_path, "repo", "math_utils.py")
+    with open(path) as fh:
+        lines = fh.read().splitlines()
+    n = len(lines)
+    new_n = n + len(added_lines)
+    ctx = "".join(f" {line}\n" for line in lines)
+    add = "".join(f"+{line}\n" for line in added_lines)
+    return (
+        f"--- a/math_utils.py\n+++ b/math_utils.py\n"
+        f"@@ -1,{n} +1,{new_n} @@\n"
+        f"{ctx}{add}"
+    )
+
+
+def _good_diff(tmp_path):
+    return _full_context_diff(str(tmp_path), ["def double(n):", "    return 2 * n"])
+
+
 def test_patch_applies_to_fresh_clone(tmp_path):
     os.environ["REPOS_ROOT"] = str(tmp_path)
     _make_repo(tmp_path)
-    diff = (
-        "--- a/math_utils.py\n"
-        "+++ b/math_utils.py\n"
-        "@@ -1,2 +1,3 @@\n"
-        " def add(a, b):\n"
-        "     return a + b\n"
-        "+def double(n):\n"
-        "+    return 2 * n\n"
-    )
+    diff = _good_diff(tmp_path)
     checkout, error = _clone_with_patch(_patch("i1", diff))
     assert error == "", error
     with open(os.path.join(checkout, "math_utils.py")) as fh:
@@ -78,25 +92,9 @@ def test_missing_checkout_reports_error(tmp_path):
     assert "repo checkout not found" in error
 
 
-def _good_diff():
-    return (
-        "--- a/math_utils.py\n"
-        "+++ b/math_utils.py\n"
-        "@@ -1,2 +1,3 @@\n"
-        " def add(a, b):\n"
-        "     return a + b\n"
-        "+def double(n):\n"
-        "+    return 2 * n\n"
-    )
-
-
 def test_score_patch_full_path(tmp_path, monkeypatch):
     os.environ["REPOS_ROOT"] = str(tmp_path)
     _make_repo(tmp_path)
-
-    monkeypatch.setattr(scoring, "run_ruff", lambda p: (True, ""))
-    monkeypatch.setattr(scoring, "run_mypy", lambda p: (True, ""))
-    monkeypatch.setattr(scoring, "run_bandit", lambda p: (True, ""))
 
     def fake_run_tests(p):
         return (True, "3 passed")
@@ -108,7 +106,7 @@ def test_score_patch_full_path(tmp_path, monkeypatch):
 
     monkeypatch.setattr(scoring, "judge_patch", fake_judge)
 
-    result = asyncio.run(score_patch(_patch("i10", _good_diff())))
+    result = asyncio.run(score_patch(_patch("i10", _good_diff(tmp_path))))
 
     assert result.static_analysis_passed is True
     assert result.tests_passed is True
@@ -118,12 +116,16 @@ def test_score_patch_full_path(tmp_path, monkeypatch):
 
 
 def test_score_patch_static_failure(tmp_path, monkeypatch):
+    """A violation INTRODUCED by the patch fails static analysis even when
+    the repo's pre-existing debt is baseline-absorbed."""
     os.environ["REPOS_ROOT"] = str(tmp_path)
     _make_repo(tmp_path)
 
-    monkeypatch.setattr(scoring, "run_ruff", lambda p: (False, "ruff error"))
-    monkeypatch.setattr(scoring, "run_mypy", lambda p: (True, ""))
-    monkeypatch.setattr(scoring, "run_bandit", lambda p: (True, ""))
+    # baseline repo is clean; the patch introduces an undefined-name error
+    dirty_diff = _full_context_diff(
+        str(tmp_path), ["result = undefined_name"]
+    )
+
     monkeypatch.setattr(scoring, "run_tests", lambda p: (True, "ok"))
 
     async def fake_judge(patch):
@@ -131,10 +133,40 @@ def test_score_patch_static_failure(tmp_path, monkeypatch):
 
     monkeypatch.setattr(scoring, "judge_patch", fake_judge)
 
-    result = asyncio.run(score_patch(_patch("i11", _good_diff())))
+    result = asyncio.run(score_patch(_patch("i11", dirty_diff)))
 
     assert result.static_analysis_passed is False
     assert result.confidence == round(0.0 + 0.4 + 0.35 * 0.9, 3)
+    assert "undefined_name" in result.llm_judge_reasoning
+
+
+def test_score_patch_preexisting_debt_absorbed(tmp_path, monkeypatch):
+    """Baseline-diffing: repo debt that predates the patch does NOT block
+    the merge — only new violations do."""
+    os.environ["REPOS_ROOT"] = str(tmp_path)
+    _make_repo(tmp_path)
+    # give the repo pre-existing debt (an undefined name in committed code)
+    with open(os.path.join(tmp_path, "repo", "math_utils.py"), "a") as fh:
+        fh.write("\nlegacy = undefined_legacy_name\n")
+    subprocess.run(["git", "-C", str(tmp_path / "repo"), "add", "-A"], check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path / "repo"), "commit", "-q", "-m", "debt"],
+        check=True,
+        env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+             "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"},
+    )
+
+    monkeypatch.setattr(scoring, "run_tests", lambda p: (True, "ok"))
+
+    async def fake_judge(patch):
+        return (0.9, "fine")
+
+    monkeypatch.setattr(scoring, "judge_patch", fake_judge)
+
+    result = asyncio.run(score_patch(_patch("i14", _good_diff(tmp_path))))
+
+    assert result.static_analysis_passed is True
+    assert result.confidence == round(0.25 + 0.4 + 0.35 * 0.9, 3)
 
 
 def test_score_patch_missing_checkout_zero_confidence(tmp_path, monkeypatch):
@@ -145,7 +177,7 @@ def test_score_patch_missing_checkout_zero_confidence(tmp_path, monkeypatch):
 
     monkeypatch.setattr(scoring, "judge_patch", fake_judge)
 
-    result = asyncio.run(score_patch(_patch("i12", _good_diff())))
+    result = asyncio.run(score_patch(_patch("i12", "--- a/math_utils.py\n+++ b/math_utils.py\n@@ -1,1 +1,1 @@\n x\n+y\n")))
 
     assert result.confidence == 0.0
     assert result.tests_passed is False
