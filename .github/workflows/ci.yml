@@ -19,3 +19,27 @@ jobs:
       - run: pip install -r services/${{ matrix.service }}/requirements.txt
       - run: pip install pytest
       - run: PYTHONPATH=. pytest services/${{ matrix.service }}/tests -q
+
+  test-shared:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r shared/requirements.txt
+      - run: PYTHONPATH=. pytest shared/tests -q
+
+  build-dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - run: npm ci
+        working-directory: dashboard
+      - run: npm run build
+        working-directory: dashboard

@@ -1,7 +1,9 @@
+import asyncio
 import os
 import subprocess
 
-from app.scoring import WEIGHTS, _clone_with_patch
+from app import scoring
+from app.scoring import WEIGHTS, _clone_with_patch, score_patch
 
 from shared.schemas import CodePatch
 
@@ -74,3 +76,100 @@ def test_missing_checkout_reports_error(tmp_path):
     checkout, error = _clone_with_patch(patch)
     assert checkout is None
     assert "repo checkout not found" in error
+
+
+def _good_diff():
+    return (
+        "--- a/math_utils.py\n"
+        "+++ b/math_utils.py\n"
+        "@@ -1,2 +1,3 @@\n"
+        " def add(a, b):\n"
+        "     return a + b\n"
+        "+def double(n):\n"
+        "+    return 2 * n\n"
+    )
+
+
+def test_score_patch_full_path(tmp_path, monkeypatch):
+    os.environ["REPOS_ROOT"] = str(tmp_path)
+    _make_repo(tmp_path)
+
+    monkeypatch.setattr(scoring, "run_ruff", lambda p: (True, ""))
+    monkeypatch.setattr(scoring, "run_mypy", lambda p: (True, ""))
+    monkeypatch.setattr(scoring, "run_bandit", lambda p: (True, ""))
+
+    def fake_run_tests(p):
+        return (True, "3 passed")
+
+    monkeypatch.setattr(scoring, "run_tests", fake_run_tests)
+
+    async def fake_judge(patch):
+        return (0.8, "looks good")
+
+    monkeypatch.setattr(scoring, "judge_patch", fake_judge)
+
+    result = asyncio.run(score_patch(_patch("i10", _good_diff())))
+
+    assert result.static_analysis_passed is True
+    assert result.tests_passed is True
+    assert result.test_output == "3 passed"
+    assert result.llm_judge_score == 0.8
+    assert result.confidence == round(0.25 + 0.4 + 0.35 * 0.8, 3)
+
+
+def test_score_patch_static_failure(tmp_path, monkeypatch):
+    os.environ["REPOS_ROOT"] = str(tmp_path)
+    _make_repo(tmp_path)
+
+    monkeypatch.setattr(scoring, "run_ruff", lambda p: (False, "ruff error"))
+    monkeypatch.setattr(scoring, "run_mypy", lambda p: (True, ""))
+    monkeypatch.setattr(scoring, "run_bandit", lambda p: (True, ""))
+    monkeypatch.setattr(scoring, "run_tests", lambda p: (True, "ok"))
+
+    async def fake_judge(patch):
+        return (0.9, "fine")
+
+    monkeypatch.setattr(scoring, "judge_patch", fake_judge)
+
+    result = asyncio.run(score_patch(_patch("i11", _good_diff())))
+
+    assert result.static_analysis_passed is False
+    assert result.confidence == round(0.0 + 0.4 + 0.35 * 0.9, 3)
+
+
+def test_score_patch_missing_checkout_zero_confidence(tmp_path, monkeypatch):
+    os.environ["REPOS_ROOT"] = str(tmp_path)
+
+    async def fake_judge(patch):
+        return (0.9, "should not be called")
+
+    monkeypatch.setattr(scoring, "judge_patch", fake_judge)
+
+    result = asyncio.run(score_patch(_patch("i12", _good_diff())))
+
+    assert result.confidence == 0.0
+    assert result.tests_passed is False
+    assert "repo checkout not found" in result.llm_judge_reasoning
+
+
+def test_score_patch_patch_does_not_apply(tmp_path, monkeypatch):
+    os.environ["REPOS_ROOT"] = str(tmp_path)
+    _make_repo(tmp_path)
+
+    diff = (
+        "--- a/missing_file.py\n"
+        "+++ b/missing_file.py\n"
+        "@@ -1,1 +1,1 @@\n"
+        "-old\n"
+        "+new\n"
+    )
+
+    async def fake_judge(patch):
+        return (0.9, "should not be called")
+
+    monkeypatch.setattr(scoring, "judge_patch", fake_judge)
+
+    result = asyncio.run(score_patch(_patch("i13", diff)))
+
+    assert result.confidence == 0.0
+    assert "patch does not apply" in result.llm_judge_reasoning

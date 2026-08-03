@@ -6,7 +6,8 @@
 #
 # Each service ships its own `app` package, so lint/type/test steps must
 # run one service at a time — a single mypy/pytest invocation at the repo
-# root collides on the duplicate "app" module names.
+# root collides on the duplicate "app" module names. shared/ is tested the
+# same way in its own matrix entry.
 name: ai-quality-gate
 
 on:
@@ -19,20 +20,54 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service: [orchestrator, retrieval, codegen, validator, guardrail, gateway]
+        include:
+          - service: orchestrator
+            test_dir: services/orchestrator/tests
+            cov_dir: services/orchestrator/app
+            static_dirs: services/orchestrator shared
+            req: services/orchestrator/requirements.txt
+          - service: retrieval
+            test_dir: services/retrieval/tests
+            cov_dir: services/retrieval/app
+            static_dirs: services/retrieval shared
+            req: services/retrieval/requirements.txt
+          - service: codegen
+            test_dir: services/codegen/tests
+            cov_dir: services/codegen/app
+            static_dirs: services/codegen shared
+            req: services/codegen/requirements.txt
+          - service: validator
+            test_dir: services/validator/tests
+            cov_dir: services/validator/app
+            static_dirs: services/validator shared
+            req: services/validator/requirements.txt
+          - service: guardrail
+            test_dir: services/guardrail/tests
+            cov_dir: services/guardrail/app
+            static_dirs: services/guardrail shared
+            req: services/guardrail/requirements.txt
+          - service: gateway
+            test_dir: services/gateway/tests
+            cov_dir: services/gateway/app
+            static_dirs: services/gateway shared
+            req: services/gateway/requirements.txt
+          - service: shared
+            test_dir: shared/tests
+            cov_dir: shared
+            static_dirs: shared
+            req: shared/requirements.txt
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -r services/${{ matrix.service }}/requirements.txt pytest pytest-cov ruff mypy bandit
+      - run: pip install -r ${{ matrix.req }} pytest pytest-cov ruff mypy bandit
       - name: static analysis
         run: |
-          ruff check services/${{ matrix.service }}
-          mypy services/${{ matrix.service }} shared
-          bandit -r services/${{ matrix.service }} shared -q
+          ruff check ${{ matrix.static_dirs }}
+          mypy ${{ matrix.static_dirs }}
+          bandit -r ${{ matrix.static_dirs }} -q
       - name: tests + coverage
-        # fail-under is a floor, not the target: raise it as the suite grows.
-        run: PYTHONPATH=. pytest services/${{ matrix.service }}/tests --cov=services/${{ matrix.service }}/app --cov-fail-under=30
+        run: PYTHONPATH=. pytest ${{ matrix.test_dir }} --cov=${{ matrix.cov_dir }} --cov-fail-under=80
       - name: block merge below coverage or on lint failure
         run: echo "quality gate passed — safe to merge"

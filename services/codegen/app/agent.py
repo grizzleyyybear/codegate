@@ -32,13 +32,14 @@ def _read_files(plan: Plan) -> list[tuple[str, str]]:
     seen: dict[str, str] = {}
     for chunk in plan.context:
         path = chunk.file_path
-        if "/" + plan.repo + "/" not in path.replace("\\", "/"):
+        norm = path.replace("\\", "/")
+        if "/" + plan.repo + "/" not in norm:
             continue
-        rel = path.split(plan.repo + "/", 1)[1]
+        rel = norm.split(plan.repo + "/", 1)[1]
         if rel in seen:
             continue
         try:
-            with open(path, errors="ignore") as fh:
+            with open(norm, errors="ignore") as fh:
                 seen[rel] = fh.read()
         except OSError:
             continue

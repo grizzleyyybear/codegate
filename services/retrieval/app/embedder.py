@@ -11,8 +11,8 @@ from functools import lru_cache
 
 @lru_cache(maxsize=1)
 def _model():
-    from sentence_transformers import (
-        SentenceTransformer,  # type: ignore[import-not-found]
+    from sentence_transformers import (  # type: ignore[import-not-found]
+        SentenceTransformer,
     )
 
     return SentenceTransformer("BAAI/bge-small-en-v1.5")
